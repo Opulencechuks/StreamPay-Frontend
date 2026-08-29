@@ -5,6 +5,7 @@ import {
   SorobanError,
   SorobanErrorCode,
 } from '../types';
+import { validateSimulation } from '../app/lib/simulation-validator';
 
 /**
  * Mock On-Chain Client for StreamPay.
@@ -104,12 +105,17 @@ export const onChainClient = {
       );
     }
 
-    if (_clientConfig.simulateSimulationFailed) {
-      throw new SorobanError(
-        SorobanErrorCode.SimulationFailed,
-        `Pre-flight simulation failed for stream ${streamId}: contract revert`,
-        { statusCode: 400, meta: { streamId, phase: 'simulation' } }
-      );
+    const simulationResult = _clientConfig.simulateSimulationFailed
+      ? { error: `Pre-flight simulation failed for stream ${streamId}: contract revert` }
+      : { results: [{ xdr: 'AAAA' }], minResourceFee: '100', cost: { cpuInsns: '100', memBytes: '100' } };
+    
+    try {
+      validateSimulation(simulationResult);
+    } catch (e: any) {
+      if (e instanceof SorobanError && e.variant === SorobanErrorCode.SimulationFailed) {
+        throw new SorobanError(SorobanErrorCode.SimulationFailed, e.message, { statusCode: 400, meta: { streamId, phase: 'simulation' } });
+      }
+      throw e;
     }
 
     const stream = MOCK_ON_CHAIN_DATA[streamId];
@@ -196,12 +202,17 @@ export const onChainClient = {
       );
     }
 
-    if (_clientConfig.simulateSimulationFailed) {
-      throw new SorobanError(
-        SorobanErrorCode.SimulationFailed,
-        `Pre-flight simulation failed for stream creation ${streamId}`,
-        { statusCode: 400, meta: { streamId, phase: 'create_simulation' } }
-      );
+    const simulationResult = _clientConfig.simulateSimulationFailed
+      ? { error: `Pre-flight simulation failed for stream creation ${streamId}` }
+      : { results: [{ xdr: 'AAAA' }], minResourceFee: '100', cost: { cpuInsns: '100', memBytes: '100' } };
+    
+    try {
+      validateSimulation(simulationResult);
+    } catch (e: any) {
+      if (e instanceof SorobanError && e.variant === SorobanErrorCode.SimulationFailed) {
+        throw new SorobanError(SorobanErrorCode.SimulationFailed, e.message, { statusCode: 400, meta: { streamId, phase: 'create_simulation' } });
+      }
+      throw e;
     }
 
     if (_clientConfig.simulateSubmitTimeout) {
