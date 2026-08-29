@@ -21,6 +21,7 @@ export interface NotificationPreferences {
   email: boolean;
   inApp: boolean;
   webhook: boolean;
+  soundEnabled: boolean;
   events: {
     streamCreated: boolean;
     streamCompleted: boolean;
@@ -38,6 +39,7 @@ const DEFAULT_PREFS: Omit<NotificationPreferences, "userId" | "updatedAt"> = {
   email: true,
   inApp: true,
   webhook: false,
+  soundEnabled: true,
   events: {
     streamCreated: true,
     streamCompleted: true,
@@ -50,7 +52,7 @@ const DEFAULT_PREFS: Omit<NotificationPreferences, "userId" | "updatedAt"> = {
   },
 };
 
-const TOP_LEVEL_FIELDS = ["email", "inApp", "webhook", "events", "quietHours"] as const;
+const TOP_LEVEL_FIELDS = ["email", "inApp", "webhook", "soundEnabled", "events", "quietHours"] as const;
 const EVENT_FIELDS = [
   "streamCreated",
   "streamCompleted",
@@ -109,6 +111,7 @@ interface PartialPreferencePayload {
   email?: boolean;
   inApp?: boolean;
   webhook?: boolean;
+  soundEnabled?: boolean;
   events?: Partial<NotificationPreferences["events"]>;
   quietHours?: Partial<QuietHoursConfig>;
 }
@@ -128,10 +131,12 @@ function validatePreferencePayload(body: unknown): PartialPreferencePayload | nu
   if ("email" in body && !isBoolean(body.email)) return null;
   if ("inApp" in body && !isBoolean(body.inApp)) return null;
   if ("webhook" in body && !isBoolean(body.webhook)) return null;
+  if ("soundEnabled" in body && !isBoolean(body.soundEnabled)) return null;
 
   if ("email" in body) normalized.email = body.email as boolean;
   if ("inApp" in body) normalized.inApp = body.inApp as boolean;
   if ("webhook" in body) normalized.webhook = body.webhook as boolean;
+  if ("soundEnabled" in body) normalized.soundEnabled = body.soundEnabled as boolean;
 
   if ("events" in body) {
     if (!isRecord(body.events)) return null;
@@ -228,7 +233,7 @@ export async function PUT(request: Request) {
     return createErrorResponse(
       request,
       "INVALID_BODY",
-      "Request body must be a JSON object with valid preference fields (email, inApp, webhook, events, quietHours)",
+      "Request body must be a JSON object with valid preference fields (email, inApp, webhook, soundEnabled, events, quietHours)",
       400,
     );
   }

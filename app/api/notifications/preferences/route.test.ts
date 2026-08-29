@@ -103,6 +103,7 @@ describe("GET /api/notifications/preferences", () => {
       email: true,
       inApp: true,
       webhook: false,
+      soundEnabled: true,
       events: {
         streamCreated: true,
         streamCompleted: true,
@@ -234,6 +235,7 @@ describe("PUT /api/notifications/preferences", () => {
         body: JSON.stringify({
           email: false,
           inApp: true,
+          soundEnabled: false,
           events: {
             streamCreated: false,
             paymentFailed: false,
@@ -257,6 +259,7 @@ describe("PUT /api/notifications/preferences", () => {
       email: false,
       inApp: true,
       webhook: false,
+      soundEnabled: false,
       events: {
         streamCreated: false,
         streamCompleted: true,
