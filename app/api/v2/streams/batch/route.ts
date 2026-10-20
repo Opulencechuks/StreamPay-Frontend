@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, ErrorCode } from "@/app/lib/errors/server";
 import { getStore, withLock } from "@/app/lib/db";
-import { toV2Stream, dbStreamToV1 } from "@/app/lib/api-version";
+import { toV2Stream, dbStreamToV1, ProjectionError } from "@/app/lib/api-version";
 import type { Stream } from "@/app/types/openapi";
 
 interface BatchUpdateRequest {
@@ -115,7 +115,14 @@ export async function POST(req: NextRequest) {
       };
       
       streamRepository.streams.set(id, updatedStream);
-      updatedStreams.push(toV2Stream(dbStreamToV1(updatedStream as Stream)));
+      try {
+        updatedStreams.push(toV2Stream(dbStreamToV1(updatedStream as Stream)));
+      } catch (err) {
+        if (err instanceof ProjectionError) {
+          return errorResponse("PROJECTION_ERROR", err.message, 500);
+        }
+        throw err;
+      }
     }
 
     return NextResponse.json({ streams: updatedStreams }, { status: 200 });

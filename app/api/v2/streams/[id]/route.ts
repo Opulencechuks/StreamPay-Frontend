@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/app/lib/db";
 import { getCorrelationContext } from "@/app/lib/logger";
-import { toV2Stream, dbStreamToV1 } from "@/app/lib/api-version";
+import { toV2Stream, dbStreamToV1, ProjectionError } from "@/app/lib/api-version";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -39,7 +39,15 @@ export async function GET(request: Request, { params }: Context) {
     }
   }
 
-  const streamV2 = toV2Stream(dbStreamToV1(stream));
+  let streamV2;
+  try {
+    streamV2 = toV2Stream(dbStreamToV1(stream));
+  } catch (err) {
+    if (err instanceof ProjectionError) {
+      return errorResponse("PROJECTION_ERROR", err.message, 500);
+    }
+    throw err;
+  }
   const response = NextResponse.json({
     ...streamV2,
     data: streamV2,
@@ -122,7 +130,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   };
   streamRepository.streams.set(id, updated as any);
 
-  const streamV2 = toV2Stream(dbStreamToV1(updated as any));
+  let streamV2;
+  try {
+    streamV2 = toV2Stream(dbStreamToV1(updated as any));
+  } catch (err) {
+    if (err instanceof ProjectionError) {
+      return errorResponse("PROJECTION_ERROR", err.message, 500);
+    }
+    throw err;
+  }
   return NextResponse.json({
     ...streamV2,
     data: streamV2,

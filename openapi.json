@@ -353,7 +353,9 @@
               "draft",
               "active",
               "paused",
-              "ended"
+              "ended",
+              "withdrawn",
+              "cancelled"
             ],
             "description": "Current lifecycle state of the stream."
           },
@@ -362,7 +364,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Actions the authenticated user may perform on this stream. Replaces v1 `actions`.",
+            "description": "Legal actions for the stream's current status, derived from the lifecycle state-machine table (status-changing actions only). Replaces v1 `actions`.",
             "example": [
               "pause",
               "stop"
@@ -379,11 +381,16 @@
               {
                 "type": "object",
                 "required": [
+                  "tx_hash",
                   "settled_at",
                   "amount",
                   "currency"
                 ],
                 "properties": {
+                  "tx_hash": {
+                    "type": "string",
+                    "example": "c3f8a12e4b76"
+                  },
                   "settled_at": {
                     "type": "string",
                     "format": "date-time",
@@ -391,7 +398,8 @@
                   },
                   "amount": {
                     "type": "string",
-                    "example": "360 XLM"
+                    "description": "Raw-unit amount string (releasedAmount or totalAmount).",
+                    "example": "3600000000"
                   },
                   "currency": {
                     "type": "string",
