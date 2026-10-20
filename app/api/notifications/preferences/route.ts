@@ -5,6 +5,7 @@
 
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { computeETag, ifNoneMatchMatches } from "@/app/lib/etag";
 import { tryAuthenticateRequest } from "@/app/lib/auth";
 import { getCorrelationContext, logger } from "@/app/lib/logger";
 import { checkRateLimit, getClientIdentity, rateLimitResponse } from "@/app/lib/rate-limit";
@@ -15,6 +16,17 @@ import {
   DEFAULT_QUIET_HOURS,
   validatePartialQuietHours,
 } from "@/app/lib/quiet-hours";
+import {
+  buildLimitsConfig,
+  createBodySizeTooLargeResponse,
+  getBodySizeLimit,
+} from "@/lib/bodySize";
+import {
+  BodyTooLargeError,
+  InvalidJsonError,
+  readJsonBody,
+} from "@/lib/readJsonBody";
+import { resolveRequestId } from "@/lib/requestId";
 
 export interface NotificationPreferences {
   userId: string;
@@ -192,12 +204,19 @@ export async function GET(request: Request) {
   }
 
   const preferences = getPreferences(actor.actorId);
+  const etag = computeETag(actor.actorId, preferences);
+
   logger.info("Notification preferences fetched", {
     actorId: actor.actorId,
     walletAddress: actor.walletAddress,
   });
 
-  return NextResponse.json({ preferences });
+  return NextResponse.json({ preferences }, {
+    headers: {
+      ETag: etag,
+      "Cache-Control": "private, max-age=0, must-revalidate",
+    },
+  });
 }
 
 export async function PUT(request: Request) {
@@ -223,9 +242,28 @@ export async function PUT(request: Request) {
 
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return createErrorResponse(request, "INVALID_JSON", "Request body must be valid JSON", 400);
+    const limits = buildLimitsConfig();
+    const maxBytes = getBodySizeLimit(url.pathname, limits) ?? limits.default;
+    body = await readJsonBody(request, { maxBytes });
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      return createBodySizeTooLargeResponse(
+        error.receivedBytes,
+        error.maxBytes,
+        resolveRequestId(request.headers),
+      );
+    }
+    if (error instanceof InvalidJsonError) {
+      return createErrorResponse(
+        request,
+        error.code,
+        error.code === "EMPTY_BODY"
+          ? "Request body is required"
+          : "Request body must be valid JSON",
+        400,
+      );
+    }
+    throw error;
   }
 
   const payload = validatePreferencePayload(body);
@@ -239,6 +277,23 @@ export async function PUT(request: Request) {
   }
 
   const existing = getPreferences(actor.actorId);
+  const currentEtag = computeETag(actor.actorId, existing);
+  const ifMatch = request.headers.get("if-match");
+
+  if (ifMatch && !ifNoneMatchMatches(ifMatch, currentEtag)) {
+    logger.warn("Notification preferences update conflict detected", {
+      actorId: actor.actorId,
+      ifMatch,
+      currentEtag,
+    });
+    return createErrorResponse(
+      request,
+      "STATE_CONFLICT",
+      "Notification preferences have been modified concurrently. Please reload and retry.",
+      409,
+    );
+  }
+
   const updated: NotificationPreferences = {
     ...existing,
     ...payload,
@@ -254,10 +309,17 @@ export async function PUT(request: Request) {
   };
 
   prefsStore.set(actor.actorId, updated);
+  const newEtag = computeETag(actor.actorId, updated);
+
   logger.info("Notification preferences updated", {
     actorId: actor.actorId,
     updatedFields: Object.keys(payload),
   });
 
-  return NextResponse.json({ preferences: updated });
+  return NextResponse.json({ preferences: updated }, {
+    headers: {
+      ETag: newEtag,
+      "Cache-Control": "private, max-age=0, must-revalidate",
+    },
+  });
 }

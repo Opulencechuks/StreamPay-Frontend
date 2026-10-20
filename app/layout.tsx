@@ -5,6 +5,7 @@ import { CommandPaletteWrapper } from "./components/CommandPaletteWrapper";
 import { ShortcutsOverlayWrapper } from "./components/ShortcutsOverlayWrapper";
 import { SplashScreenWrapper } from "./components/SplashScreenWrapper";
 import { AppBottomNav } from "./components/AppBottomNav";
+import { SiteHeader } from "./components/SiteHeader";
 import { getThemeScript } from "./utils/theme-noflash";
 
 export const metadata: Metadata = {
@@ -30,6 +31,7 @@ export default function RootLayout({
           <SplashScreenWrapper />
           <CommandPaletteWrapper />
           <ShortcutsOverlayWrapper />
+          <SiteHeader />
           {children}
           <AppBottomNav />
         </ToastProvider>

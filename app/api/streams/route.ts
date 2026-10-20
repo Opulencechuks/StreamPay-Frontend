@@ -2,12 +2,16 @@ import { NextResponse } from "next/server";
 import {
   checkIdempotency,
   computeFingerprint,
-  decodeCursor,
-  encodeCursor,
   getStore,
   idempotencyToken,
   setIdempotency,
 } from "@/app/lib/db";
+import {
+  decodeStreamCursor,
+  encodeStreamCursor,
+  isAfterCursor,
+  type StreamCursor,
+} from "@/app/lib/stream-cursor";
 import { getCorrelationContext, logger } from "@/app/lib/logger";
 import { logAccessEvent } from "@/src/middleware/accessLog";
 import { streamsRateLimit } from "@/src/middleware/rateLimit";
@@ -19,6 +23,8 @@ import {
 import type { Stream } from "@/app/types/openapi";
 import { createCacheHeaders, createStrongEtag, isIfNoneMatchMatch } from "@/src/middleware/etag";
 import { observeStreamsRequest } from "@/src/metrics/registry";
+import { withRouteTimeout } from "@/src/middleware/timeout";
+import { appendStreamHistoryEvent } from "@/app/lib/stream-history-writer";
 
 function errorResponse(code: string, message: string, status: number) {
   return createErrorResponse(code, message, status);
@@ -41,7 +47,7 @@ function getHeader(request: Request, name: string): string | null {
   return request.headers?.get?.(name) ?? null;
 }
 
-export async function GET(request: Request) {
+async function handleStreamsGet(request: Request) {
   const start = process.hrtime();
   let status = 200;
 
@@ -84,34 +90,46 @@ export async function GET(request: Request) {
     const streamStatus = query.status ?? null;
     const limit = query.limit ?? 20;
 
-    let streams = Array.from(streamRepository.streams.values()).sort((left, right) => {
+    const sortedStreams = Array.from(streamRepository.streams.values()).sort((left, right) => {
       const timeCompare = left.createdAt.localeCompare(right.createdAt);
       return timeCompare !== 0 ? timeCompare : left.id.localeCompare(right.id);
     });
 
-    if (streamStatus) {
-      streams = streams.filter((stream) => stream.status === streamStatus);
-    }
+    let streams = streamStatus
+      ? sortedStreams.filter((stream) => stream.status === streamStatus)
+      : sortedStreams;
 
     if (cursor) {
-      let cursorId: string;
+      let keyset: StreamCursor;
       try {
-        cursorId = decodeCursor(cursor);
+        keyset = decodeStreamCursor(cursor, {
+          resolveLegacyId: (legacyId) => {
+            const legacy = streamRepository.streams.get(legacyId);
+            if (!legacy) {
+              return null;
+            }
+            logger.warn("Deprecated plain-id pagination cursor used", {
+              streamId: legacyId,
+            });
+            return { createdAt: legacy.createdAt, id: legacy.id };
+          },
+        });
       } catch {
         status = 422;
-        return errorResponse("INVALID_CURSOR", "Malformed cursor", 422);
+        return errorResponse(
+          "INVALID_CURSOR",
+          "Cursor is malformed or refers to a stream that no longer exists.",
+          422,
+        );
       }
-      const cursorIndex = streams.findIndex((stream) => stream.id === cursorId);
-      if (cursorIndex >= 0) {
-        streams = streams.slice(cursorIndex + 1);
-      }
+      streams = streams.filter((stream) => isAfterCursor(stream, keyset));
     }
 
     const paginatedStreams = streams.slice(0, limit);
     const hasNext = streams.length > limit;
     const nextCursor =
       hasNext && paginatedStreams.length > 0
-        ? encodeCursor(paginatedStreams[paginatedStreams.length - 1].id)
+        ? encodeStreamCursor(paginatedStreams[paginatedStreams.length - 1])
         : null;
 
     const payload = {
@@ -149,7 +167,11 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+export async function GET(request: Request) {
+  return withRouteTimeout(request, () => handleStreamsGet(request));
+}
+
+async function handleStreamsPost(request: Request) {
   const start = process.hrtime();
   let status = 201;
 
@@ -251,6 +273,15 @@ export async function POST(request: Request) {
     };
 
     streamRepository.streams.set(id, newStream);
+
+    appendStreamHistoryEvent({
+      streamId: id,
+      type: "created",
+      toStatus: "draft",
+      at: now,
+      actorWallet: getHeader(request, "Actor-Wallet-Address"),
+    });
+
     const payload = { data: newStream, links: { self: `/api/v1/streams/${id}` } };
 
     if (token) {
@@ -266,4 +297,8 @@ export async function POST(request: Request) {
   } finally {
     observeStreamsRequest("POST", status, start);
   }
+}
+
+export async function POST(request: Request) {
+  return withRouteTimeout(request, () => handleStreamsPost(request));
 }
