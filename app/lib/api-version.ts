@@ -27,14 +27,11 @@ export interface StreamV1 {
   actions?: string[];
   nextAction?: string;
   createdAt: string;
-  updatedAt?: string;
-  settlementTxHash?: string;
-  releasedAmount?: string;
-  totalAmount?: string;
-  token?: string;
+  senderAddress?: string | null;
+  ownership?: "individual" | "org" | "unclaimed";
 }
 
-/** v2 wire shape — the canonical contract for /api/v2/streams. */
+/** v2 wire shape ï¿½ the canonical contract for /api/v2/streams. */
 export interface StreamV2 {
   id: string;
   recipient: string;
@@ -51,6 +48,8 @@ export interface StreamV2 {
    * Clients must handle `null` explicitly.
    */
   settlement: StreamSettlement | null;
+  senderAddress?: string | null;
+  ownership?: "individual" | "org" | "unclaimed";
 }
 
 export interface StreamSettlement {
@@ -127,7 +126,9 @@ export function toV2Stream(v1: StreamV1): StreamV2 {
     next_action: v1.nextAction ?? null,
     created_at: v1.createdAt,
     createdAt: v1.createdAt,
-    settlement,
+    settlement: null,
+    senderAddress: v1.senderAddress ?? null,
+    ownership: v1.ownership,
   };
 }
 /** Convert a db Stream object to the StreamV1 shape. */
@@ -140,5 +141,7 @@ export function dbStreamToV1(stream: Stream): StreamV1 {
     status: stream.status as StreamV1["status"],
     actions: stream.nextAction ? [stream.nextAction] : [],
     createdAt: stream.createdAt,
+    senderAddress: stream.senderAddress ?? null,
+    ownership: stream.ownership,
   };
 }
