@@ -144,9 +144,9 @@ export interface paths {
         /**
          * Delete a payment stream (v1, deprecated)
          * @deprecated
-         * @description Permanently deletes a stream. **Deprecated** — use `DELETE /api/v2/streams/{id}` instead.
+         * @description Soft deletes a stream and marks it deletedAt. **Deprecated** — use `DELETE /api/v2/streams/{id}` instead.
          *
-         *     A stream must be in `draft` or `ended` status before it can be deleted. Attempting to delete an `active` or `paused` stream returns 409. Cache is invalidated on success.
+         *     Only streams in `draft`, `cancelled`, or `withdrawn` with a succeeded withdrawal can be deleted. Attempting to delete an `ended` stream returns 409 `FUNDS_PENDING_WITHDRAWAL`. Deleting an `active` or `paused` stream returns 409 `STREAM_INACTIVE_STATE`. Deleting requires the actor to be the senderAddress or an organization owner (returns 403 otherwise). Already-deleted streams return 204 idempotently.
          */
         delete: operations["deleteStream"];
         options?: never;
@@ -177,6 +177,32 @@ export interface paths {
          * @description Transitions a stream from `draft` (or `paused`) to `active`, initiating payment disbursements. **Deprecated** — use `POST /api/v2/streams/{id}/start` instead.
          */
         post: operations["startStream"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/streams/{id}/history": {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Tenant id — must match the stream's owner. */
+                "x-tenant-id": string;
+            };
+            path: {
+                /** @description Stream identifier. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Paginated lifecycle event history for a stream
+         * @description Returns a newest-first paginated list of committed lifecycle events. No PII. Uses composite (at, id) cursor.
+         */
+        get: operations["getStreamHistory"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -330,7 +356,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a payment stream (v2)
-         * @description Permanently deletes a stream. The stream must be in `draft` or `ended` status; attempting to delete an `active` or `paused` stream returns 409.
+         * @description Soft deletes a stream and marks it deletedAt. Only streams in `draft`, `cancelled`, or `withdrawn` with a succeeded withdrawal can be deleted. Attempting to delete an `ended` stream returns 409 `FUNDS_PENDING_WITHDRAWAL`. Deleting an `active` or `paused` stream returns 409 `STREAM_INACTIVE_STATE`. When a verified actor is provided, deletion requires the actor to be the senderAddress or an organization owner (returns 403 otherwise). Already-deleted streams return 204 idempotently.
          */
         delete: operations["deleteStreamV2"];
         options?: never;
@@ -935,6 +961,48 @@ export interface components {
                  * @example /api/activity?limit=20
                  */
                 self: string;
+            };
+        };
+        /** @description Immutable lifecycle event for a stream. No PII — actor wallet truncated to 6 chars. */
+        StreamHistoryEntry: {
+            /**
+             * @description Unique entry id.
+             * @example 3c4d5e6f-7a8b-9c0d-e1f2-a3b4c5d6e7f8
+             */
+            id: string;
+            /**
+             * @description Owning stream id.
+             * @example stream-abc12345
+             */
+            streamId: string;
+            /** @enum {string} */
+            type: "created" | "started" | "paused" | "resumed" | "stopped" | "settled" | "withdrawn" | "cancelled";
+            /** @description Status before transition; absent for 'created'. */
+            fromStatus?: string | null;
+            /** @description Status after transition. */
+            toStatus: string;
+            /**
+             * Format: date-time
+             * @description ISO-8601 UTC timestamp.
+             * @example 2026-06-01T09:00:00.000Z
+             */
+            at: string;
+            /**
+             * @description First 6 chars of actor wallet (no PII).
+             * @example GABCDE
+             */
+            actor?: string | null;
+            /** @description On-chain tx hash (once indexer is wired). */
+            txHash?: string | null;
+            /** @description Human-readable amount label, e.g. '120 XLM'. */
+            amountRaw?: string | null;
+        };
+        StreamHistoryResponse: {
+            /** @description History entries, newest first. */
+            data: components["schemas"]["StreamHistoryEntry"][];
+            meta: {
+                /** @description Opaque cursor for the next page; null when none remain. */
+                nextCursor: string | null;
             };
         };
     };
@@ -1710,7 +1778,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Stream deleted. No response body. */
+            /** @description Stream deleted or already deleted. No response body. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -1735,6 +1803,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            403: components["responses"]["403"];
             404: components["responses"]["404"];
             409: components["responses"]["409"];
             /** @description Rate limit exceeded. */
@@ -1841,6 +1910,41 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            500: components["responses"]["500"];
+        };
+    };
+    getStreamHistory: {
+        parameters: {
+            query?: {
+                /** @description Max entries per page. */
+                limit?: number;
+                /** @description Opaque cursor from meta.nextCursor of the previous response. */
+                cursor?: string;
+            };
+            header: {
+                /** @description Tenant id — must match the stream's owner. */
+                "x-tenant-id": string;
+            };
+            path: {
+                /** @description Stream identifier. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list of lifecycle events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StreamHistoryResponse"];
+                };
+            };
+            400: components["responses"]["400"];
+            404: components["responses"]["404"];
+            422: components["responses"]["422"];
             500: components["responses"]["500"];
         };
     };
@@ -2344,7 +2448,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Stream deleted. No response body. */
+            /** @description Stream deleted or already deleted. No response body. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -2352,6 +2456,7 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["401"];
+            403: components["responses"]["403"];
             404: components["responses"]["404"];
             409: components["responses"]["409"];
             500: components["responses"]["500"];

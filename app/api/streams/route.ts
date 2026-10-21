@@ -90,10 +90,12 @@ async function handleStreamsGet(request: Request) {
     const streamStatus = query.status ?? null;
     const limit = query.limit ?? 20;
 
-    const sortedStreams = Array.from(streamRepository.streams.values()).sort((left, right) => {
-      const timeCompare = left.createdAt.localeCompare(right.createdAt);
-      return timeCompare !== 0 ? timeCompare : left.id.localeCompare(right.id);
-    });
+    const sortedStreams = Array.from(streamRepository.streams.values())
+      .filter((stream: any) => !stream.deletedAt)
+      .sort((left, right) => {
+        const timeCompare = left.createdAt.localeCompare(right.createdAt);
+        return timeCompare !== 0 ? timeCompare : left.id.localeCompare(right.id);
+      });
 
     let streams = streamStatus
       ? sortedStreams.filter((stream) => stream.status === streamStatus)

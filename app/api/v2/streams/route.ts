@@ -74,12 +74,14 @@ async function handleV2StreamsGet(request: Request) {
   const limit = query.limit ?? 20;
 
   const { streamRepository } = getStore();
-  const sortedStreams = Array.from(
+  const sortedStreams = (Array.from(
     streamRepository.streams.values() as Iterable<Stream>,
-  ).sort((a, b) => {
-    const timeCompare = a.createdAt.localeCompare(b.createdAt);
-    return timeCompare !== 0 ? timeCompare : a.id.localeCompare(b.id);
-  });
+  ) as any[])
+    .filter((stream: any) => !stream.deletedAt)
+    .sort((a, b) => {
+      const timeCompare = a.createdAt.localeCompare(b.createdAt);
+      return timeCompare !== 0 ? timeCompare : a.id.localeCompare(b.id);
+    });
 
   let streams = statusFilter
     ? sortedStreams.filter((stream) => stream.status === statusFilter)
