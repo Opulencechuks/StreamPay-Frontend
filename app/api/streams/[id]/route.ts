@@ -8,6 +8,8 @@ import { recordRequest, recordThrottle } from "@/app/lib/rate-limit-metrics";
 import { streamCache } from "@/app/lib/cache";
 import { deleteStream } from "@/app/lib/stream-delete";
 import { tryAuthenticateRequest } from "@/app/lib/auth";
+import { inferStreamChangeAction, publishStreamChange } from "@/app/lib/stream-publish";
+import type { Stream } from "@/app/types/openapi";
 
 /**
  * Resolve the active Stellar network identifier for cache scoping.
@@ -167,6 +169,14 @@ export async function POST(
   };
 
   db.streams.set(id, updatedStream);
+
+  publishStreamChange({
+    action: inferStreamChangeAction(stream, updatedStream as Stream),
+    actor: request.headers.get("Actor-Wallet-Address") ?? undefined,
+    after: updatedStream as Stream,
+    before: stream,
+    correlationId: getCorrelationContext()?.correlation_id,
+  });
 
   // Invalidate the network-scoped cache entry BEFORE returning so the next
   // GET rebuilds from the persistence store with a fresh ETag. This also
