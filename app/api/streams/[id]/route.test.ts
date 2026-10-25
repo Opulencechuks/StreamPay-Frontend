@@ -561,6 +561,18 @@ describe("Stream Details Route - GET /api/streams/:id ETag + 304 short-circuit",
 
       // Check streamRepository list or findOne excludes it
       expect(db.streams.findOne(tenantId, targetId)).toBeNull();
+
+      // Check GET /api/streams list excludes soft-deleted stream before pagination
+      const { GET: listGET } = await import("../route");
+      const listRes = await listGET(
+        new Request(`http://localhost/api/streams?limit=50`, {
+          method: "GET",
+          headers: { "x-tenant-id": tenantId, "Actor-Wallet-Address": sender },
+        })
+      );
+      expect(listRes.status).toBe(200);
+      const listBody = await listRes.json();
+      expect(listBody.data.some((s: any) => s.id === targetId)).toBe(false);
     });
 
     it("3. Delete draft as a non-sender -> 403", async () => {

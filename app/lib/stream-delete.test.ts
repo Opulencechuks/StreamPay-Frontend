@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+/** @jest-environment node */
 import { deleteStream } from "./stream-delete";
 import { db, resetDb } from "./db";
 import { auditLogStore, resetAuditLogStore } from "./audit-log";
@@ -245,5 +245,50 @@ describe("deleteStream helper coverage", () => {
     const res = await deleteStream(id, null, null);
     expect(res.success).toBe(true);
     expect(res.status).toBe(204);
+  });
+
+  it("resolves actor via actorId and checks orgDb.streamOwnership", async () => {
+    const id = "stream-org-ownership-map";
+    orgDb.streamOwnership.set(id, "org-acme");
+    db.streams.set(id, {
+      id,
+      senderAddress: sender,
+      recipient: "GRECIPIENT",
+      status: "draft",
+      rate: "10 XLM",
+      schedule: "month",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      token: "XLM",
+    } as any);
+
+    const res = await deleteStream(id, { actorId: orgOwner });
+    expect(res.success).toBe(true);
+    expect(res.status).toBe(204);
+  });
+
+  it("handles unset STELLAR_NETWORK fallback to default", async () => {
+    const prev = process.env.STELLAR_NETWORK;
+    delete process.env.STELLAR_NETWORK;
+    try {
+      const id = "stream-network-fallback";
+      db.streams.set(id, {
+        id,
+        senderAddress: sender,
+        recipient: "GRECIPIENT",
+        status: "draft",
+        rate: "10 XLM",
+        schedule: "month",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        token: "XLM",
+      } as any);
+
+      const res = await deleteStream(id, { walletAddress: sender });
+      expect(res.success).toBe(true);
+      expect(res.status).toBe(204);
+    } finally {
+      process.env.STELLAR_NETWORK = prev;
+    }
   });
 });

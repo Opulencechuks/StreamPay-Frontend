@@ -249,5 +249,80 @@ describe("GET /api/v2/streams/:id - weak ETag and If-None-Match cache revalidati
       const res = await DELETE(req, { params: Promise.resolve({ id: "stream-unknown-v2" }) });
       expect(res.status).toBe(404);
     });
+
+    it("records stream.delete audit entry with before snapshot on v2 delete", async () => {
+      const { auditLogStore, resetAuditLogStore } = await import("@/app/lib/audit-log");
+      resetAuditLogStore();
+
+      const targetId = "stream-v2-audit-check";
+      db.streams.set(targetId, {
+        id: targetId,
+        senderAddress: sender,
+        recipient: "GRECIPIENT",
+        status: "draft",
+        rate: "10 XLM",
+        schedule: "month",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        token: "XLM",
+      } as any);
+
+      const req = new Request(`http://localhost/api/v2/streams/${targetId}`, {
+        method: "DELETE",
+        headers: {
+          "Actor-Wallet-Address": sender,
+          "x-request-id": "req-v2-delete-audit",
+        },
+      });
+      const res = await DELETE(req, { params: Promise.resolve({ id: targetId }) });
+      expect(res.status).toBe(204);
+
+      const entries = auditLogStore.list({ requestId: "req-v2-delete-audit" });
+      expect(entries.length).toBe(1);
+      expect(entries[0].action).toBe("stream.delete");
+      expect(entries[0].before).toBeDefined();
+      expect((entries[0].before as any).id).toBe(targetId);
+      expect((entries[0].before as any).status).toBe("draft");
+    });
+
+    it("returns 404 (not 304) on GET with stale If-None-Match after v2 delete", async () => {
+      const targetId = "stream-v2-stale-etag";
+      const updatedAt = "2026-04-28T10:30:00Z";
+      db.streams.set(targetId, {
+        id: targetId,
+        senderAddress: sender,
+        recipient: "GRECIPIENT",
+        status: "draft",
+        rate: "10 XLM",
+        schedule: "month",
+        createdAt: "2026-04-01T09:00:00Z",
+        updatedAt,
+        token: "XLM",
+      } as any);
+
+      const initialGet = await GET(new Request(`http://localhost/api/v2/streams/${targetId}`), {
+        params: Promise.resolve({ id: targetId }),
+      });
+      expect(initialGet.status).toBe(200);
+      const etag = initialGet.headers.get("etag")!;
+
+      const delRes = await DELETE(
+        new Request(`http://localhost/api/v2/streams/${targetId}`, {
+          method: "DELETE",
+          headers: { "Actor-Wallet-Address": sender },
+        }),
+        { params: Promise.resolve({ id: targetId }) }
+      );
+      expect(delRes.status).toBe(204);
+
+      const replayGet = await GET(
+        new Request(`http://localhost/api/v2/streams/${targetId}`, {
+          headers: { "If-None-Match": etag },
+        }),
+        { params: Promise.resolve({ id: targetId }) }
+      );
+      expect(replayGet.status).toBe(404);
+      expect(replayGet.status).not.toBe(304);
+    });
   });
 });

@@ -1,10 +1,7 @@
-import { NextResponse } from "next/server";
 import { db } from "@/app/lib/db";
 import { streamCache } from "@/app/lib/cache";
 import { recordPrivilegedStreamAuditEvent } from "@/app/lib/audit-log";
-import { getCorrelationContext } from "@/app/lib/logger";
 import { orgDb } from "@/app/lib/org-db";
-import type { Stream } from "@/app/types/openapi";
 
 export interface DeleteActor {
   actorId?: string;
@@ -54,11 +51,6 @@ export async function deleteStream(
     };
   }
 
-  // Idempotency: If already soft-deleted, return 204 directly
-  if ((rawStream as any).deletedAt) {
-    return { success: true, status: 204 };
-  }
-
   // Tenant validation (if tenant is supplied, e.g. from v1 x-tenant-id header)
   if (tenant !== undefined && tenant !== null && tenant !== "") {
     const streamTenant = (rawStream as any).tenant;
@@ -70,6 +62,11 @@ export async function deleteStream(
         message: `Stream '${id}' not found`,
       };
     }
+  }
+
+  // Idempotency: If already soft-deleted, return 204 directly
+  if ((rawStream as any).deletedAt) {
+    return { success: true, status: 204 };
   }
 
   // Ownership verification
@@ -168,16 +165,21 @@ export async function deleteStream(
   streamCache.invalidate(effectiveTenant, id, currentNetwork());
 
   // Record audit log
-  if (request) {
-    recordPrivilegedStreamAuditEvent({
-      action: "stream.delete",
-      before: beforeSnapshot as Record<string, unknown>,
-      after: updatedStream as Record<string, unknown>,
-      streamId: id,
-      targetAccount: rawStream.recipient,
-      request,
+  const effectiveRequest =
+    request ??
+    new Request(`http://localhost/api/streams/${id}`, {
+      method: "DELETE",
+      headers: actorWallet ? { "x-streampay-actor-id": actorWallet, "x-streampay-actor-role": "user" } : {},
     });
-  }
+
+  recordPrivilegedStreamAuditEvent({
+    action: "stream.delete",
+    before: beforeSnapshot as Record<string, unknown>,
+    after: updatedStream as Record<string, unknown>,
+    streamId: id,
+    targetAccount: rawStream.recipient,
+    request: effectiveRequest,
+  });
 
   return { success: true, status: 204 };
 }

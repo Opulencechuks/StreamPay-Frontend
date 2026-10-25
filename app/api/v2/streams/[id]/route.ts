@@ -75,8 +75,9 @@ export async function DELETE(request: Request, { params }: Context) {
     null;
 
   const actor = authActor || (actorWalletHeader ? { walletAddress: actorWalletHeader } : null);
+  const tenant = request.headers.get("x-tenant-id")?.trim() || null;
 
-  const result = await deleteStream(id, actor, null, request);
+  const result = await deleteStream(id, actor, tenant, request);
   if (!result.success) {
     return errorResponse(result.code, result.message, result.status);
   }
